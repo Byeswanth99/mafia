@@ -1,0 +1,28 @@
+{
+  "name": "mafia-server",
+  "version": "1.0.0",
+  "description": "Mafia Multiplayer Game Server",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "keywords": ["mafia", "socket.io", "multiplayer", "party-game"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.6.1",
+    "cors": "^2.8.5",
+    "uuid": "^9.0.0",
+    "@types/express": "^4.17.17",
+    "@types/node": "^20.11.5",
+    "@types/cors": "^2.8.13",
+    "@types/uuid": "^9.0.7",
+    "typescript": "^5.3.3"
+  },
+  "devDependencies": {
+    "ts-node-dev": "^2.0.0"
+  }
+}
