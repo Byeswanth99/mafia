@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 export class RoomManager {
   private rooms: Map<string, GameRoom> = new Map();
   private roomCreationTimes: Map<string, number> = new Map();
+  private roomLastActivity: Map<string, number> = new Map();
 
   generateRoomCode(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -20,8 +21,10 @@ export class RoomManager {
   createRoom(hostSocketId: string, hostName: string): { roomCode: string; hostId: string; token: string } {
     const roomCode = this.generateRoomCode();
     const room = new GameRoom(roomCode, hostSocketId, hostName);
+    const now = Date.now();
     this.rooms.set(roomCode, room);
-    this.roomCreationTimes.set(roomCode, Date.now());
+    this.roomCreationTimes.set(roomCode, now);
+    this.roomLastActivity.set(roomCode, now);
 
     const host = room.getPlayerBySocketId(hostSocketId)!;
     logger.gameEvent('Room created', roomCode, `Total rooms: ${this.rooms.size}`);
@@ -32,9 +35,14 @@ export class RoomManager {
     return this.rooms.get(roomCode.toUpperCase());
   }
 
+  touchRoom(roomCode: string): void {
+    this.roomLastActivity.set(roomCode, Date.now());
+  }
+
   deleteRoom(roomCode: string): void {
     this.rooms.delete(roomCode);
     this.roomCreationTimes.delete(roomCode);
+    this.roomLastActivity.delete(roomCode);
     logger.gameEvent('Room deleted', roomCode, `Remaining rooms: ${this.rooms.size}`);
   }
 
@@ -42,35 +50,46 @@ export class RoomManager {
     return this.rooms.size;
   }
 
-  cleanupStaleRooms(): number {
+  getStaleRoomCodes(): string[] {
     const now = Date.now();
-    let cleanedCount = 0;
+    const ONE_MIN = 60 * 1000;
+    const ONE_HOUR = 60 * 60 * 1000;
+    const THIRTY_MIN = 30 * 60 * 1000;
+    const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
+    const stale: string[] = [];
 
     for (const [roomCode, room] of this.rooms.entries()) {
-      const creationTime = this.roomCreationTimes.get(roomCode) || now;
-      const age = now - creationTime;
+      const lastActivity = this.roomLastActivity.get(roomCode) || now;
+      const idle = now - lastActivity;
       const phase = room.getPhase();
 
       const shouldCleanup =
-        (phase === 'game_over' && age > 180000) ||
-        (phase === 'lobby' && age > 900000) ||
-        (room.isAllPlayersDisconnected() && age > 120000) ||
-        (age > 3600000);
+        (phase === 'game_over' && idle > ONE_MIN) ||
+        (phase === 'lobby' && idle > ONE_HOUR) ||
+        (room.isAllPlayersDisconnected() && idle > THIRTY_MIN) ||
+        (idle > THREE_DAYS);
 
       if (shouldCleanup) {
         logger.cleanup(`Stale room ${roomCode}`, {
-          age: `${Math.round(age / 60000)} min`,
+          idle: `${Math.round(idle / 60000)} min`,
           phase
         });
-        this.deleteRoom(roomCode);
-        cleanedCount++;
+        stale.push(roomCode);
       }
     }
 
-    if (cleanedCount > 0) {
-      logger.cleanup(`Removed ${cleanedCount} stale room(s)`, `Remaining: ${this.rooms.size}`);
+    return stale;
+  }
+
+  cleanupStaleRooms(): number {
+    const stale = this.getStaleRoomCodes();
+    for (const roomCode of stale) {
+      this.deleteRoom(roomCode);
     }
-    return cleanedCount;
+    if (stale.length > 0) {
+      logger.cleanup(`Removed ${stale.length} stale room(s)`, `Remaining: ${this.rooms.size}`);
+    }
+    return stale.length;
   }
 
   getRoomCodes(): string[] {

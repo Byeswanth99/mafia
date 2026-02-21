@@ -49,13 +49,17 @@ app.get('/stats', (_req, res) => {
 const roomManager = new RoomManager();
 setupSocketHandlers(io, roomManager);
 
-const CLEANUP_INTERVAL = 10 * 60 * 1000;
+const CLEANUP_INTERVAL = 2 * 60 * 1000;
 setInterval(() => {
-  logger.cleanup('Running periodic room cleanup...');
-  roomManager.cleanupStaleRooms();
-  const memUsage = process.memoryUsage();
-  logger.memory(`Heap: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`);
-  logger.info(`Active rooms: ${roomManager.getRoomCount()}, Connected clients: ${io.engine.clientsCount}`);
+  const staleRoomCodes = roomManager.getStaleRoomCodes();
+  for (const roomCode of staleRoomCodes) {
+    io.to(roomCode).emit('roomClosed', { reason: 'Game session expired' });
+    io.in(roomCode).socketsLeave(roomCode);
+    roomManager.deleteRoom(roomCode);
+  }
+  if (staleRoomCodes.length > 0) {
+    logger.cleanup(`Removed ${staleRoomCodes.length} stale room(s)`, `Remaining: ${roomManager.getRoomCount()}`);
+  }
 }, CLEANUP_INTERVAL);
 
 const PORT = process.env.PORT || 3001;

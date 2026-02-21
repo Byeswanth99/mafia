@@ -102,6 +102,15 @@ export function useSocket(): UseSocketReturn {
       setTimeout(() => setReconnectMessage(null), 3000);
     });
 
+    socket.on('roomClosed', () => {
+      localStorage.removeItem('mafia_token');
+      localStorage.removeItem('mafia_playerId');
+      localStorage.removeItem('mafia_roomCode');
+      setGameState(null);
+      setNightPhaseData(null);
+      setVotingData(null);
+    });
+
     return () => {
       socket.disconnect();
     };

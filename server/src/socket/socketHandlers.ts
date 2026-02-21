@@ -12,6 +12,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager): void 
   function emitGameStateToAll(roomCode: string) {
     const room = roomManager.getRoom(roomCode);
     if (!room) return;
+    roomManager.touchRoom(roomCode);
 
     for (const playerId of room.getConnectedPlayerIds()) {
       const socketId = room.getSocketIdForPlayer(playerId);
@@ -24,6 +25,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager): void 
   function emitNightPhaseToAll(roomCode: string) {
     const room = roomManager.getRoom(roomCode);
     if (!room) return;
+    roomManager.touchRoom(roomCode);
 
     for (const playerId of room.getConnectedPlayerIds()) {
       const socketId = room.getSocketIdForPlayer(playerId);
@@ -37,6 +39,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager): void 
   function emitVotingToAll(roomCode: string) {
     const room = roomManager.getRoom(roomCode);
     if (!room) return;
+    roomManager.touchRoom(roomCode);
     emitToRoom(roomCode, 'votingUpdate', room.getVotingData());
   }
 
