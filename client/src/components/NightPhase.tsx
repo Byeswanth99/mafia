@@ -220,6 +220,55 @@ export function NightPhase({ gameState, nightData, nightChatMessages, onSelect, 
                 return null;
               })()}
             </div>
+
+            {/* Team chat — only show when more than one in this role */}
+            {nightData.sameRoleCount > 1 && (
+              <div className="mt-6 border border-midnight-600/50 rounded-xl bg-midnight-900/50 overflow-hidden">
+                <p className="text-midnight-400 text-xs font-body px-3 py-2 border-b border-midnight-600/50">
+                  Team chat (cleared when phase ends)
+                </p>
+                <div className="max-h-28 overflow-y-auto p-2 space-y-1.5">
+                  {nightChatMessages.length === 0 ? (
+                    <p className="text-midnight-500 text-xs font-body italic">No messages yet</p>
+                  ) : (
+                    nightChatMessages.map((m, i) => (
+                      <div key={i} className="text-left">
+                        <span className="text-gold-400/90 font-body text-xs font-medium">{m.playerName}:</span>
+                        <span className="text-midnight-200 font-body text-sm ml-1">{m.text}</span>
+                      </div>
+                    ))
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+                <div className="flex gap-2 p-2 border-t border-midnight-600/50">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const t = chatInput.trim();
+                        if (t) { onSendChat(t); setChatInput(''); }
+                      }
+                    }}
+                    placeholder="Type a message..."
+                    maxLength={200}
+                    className="flex-1 px-3 py-2 bg-midnight-800 border border-midnight-600 rounded-lg text-white font-body text-sm placeholder-midnight-500 outline-none focus:border-gold-500/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const t = chatInput.trim();
+                      if (t) { onSendChat(t); setChatInput(''); }
+                    }}
+                    className="px-4 py-2 bg-midnight-600 hover:bg-midnight-500 rounded-lg text-white font-body text-sm font-medium transition-colors"
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
