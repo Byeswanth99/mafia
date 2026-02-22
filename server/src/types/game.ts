@@ -89,6 +89,12 @@ export interface ClientPlayer {
   role: Role | null; // only revealed when dead or game over
 }
 
+export interface NightChatMessage {
+  playerName: string;
+  text: string;
+  ts: number;
+}
+
 export interface NightPhaseData {
   phase: GamePhase;
   myRole: Role;
@@ -96,6 +102,7 @@ export interface NightPhaseData {
   selections: Record<string, string>;  // other same-role players' selections (playerId -> targetId)
   confirmed: string[];                 // playerIds who confirmed done
   sameRoleCount: number;               // total alive players with the same role (for teammate awareness)
+  chatMessages?: NightChatMessage[];   // role-only chat for current night phase
   detectiveResult?: boolean;           // only for detective after confirmation
 }
 

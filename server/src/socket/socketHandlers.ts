@@ -1,5 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { RoomManager } from '../game/RoomManager';
+import { RoleAssigner } from '../game/RoleAssigner';
 import { NarrationEvent } from '../types/game';
 import { logger } from '../utils/logger';
 
@@ -45,6 +46,17 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager): void 
 
   function emitNarration(roomCode: string, narrations: NarrationEvent[]) {
     emitToRoom(roomCode, 'narration', narrations);
+  }
+
+  function emitNightChatToRole(roomCode: string, role: 'mafia' | 'doctor' | 'detective') {
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return;
+    const messages = room.getNightChatForRole(role);
+    const playersInRole = room.getAlivePlayersByRole(role);
+    for (const p of playersInRole) {
+      const sid = room.getSocketIdForPlayer(p.id);
+      if (sid) io.to(sid).emit('nightChatUpdate', { messages });
+    }
   }
 
   function broadcastAndState(roomCode: string, narrations: NarrationEvent[]) {
@@ -167,22 +179,49 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager): void 
 
     // --- GAME START ---
 
-    socket.on('startGame', (callback: Function) => {
+    socket.on('startGame', (dataOrCb?: { mafia?: number; doctor?: number; detective?: number } | Function, callback?: Function) => {
+      const cb = typeof dataOrCb === 'function' ? dataOrCb : callback;
+      const data = typeof dataOrCb === 'object' && dataOrCb ? dataOrCb : undefined;
       if (!currentRoomCode || !currentPlayerId) {
-        return callback({ success: false, error: 'Not in a room' });
+        return cb?.({ success: false, error: 'Not in a room' });
       }
 
       const room = roomManager.getRoom(currentRoomCode);
-      if (!room) return callback({ success: false, error: 'Room not found' });
+      if (!room) return cb?.({ success: false, error: 'Room not found' });
 
       const player = room.getPlayer(currentPlayerId);
-      if (!player?.isHost) return callback({ success: false, error: 'Only host can start' });
+      if (!player?.isHost) return cb?.({ success: false, error: 'Only host can start' });
 
-      const narrations = room.startGame();
-      if (!narrations) return callback({ success: false, error: 'Cannot start. Need at least 5 players.' });
+      const def = RoleAssigner.getDistribution(room.getPlayerCount());
+      const configClean =
+        data && (data.mafia !== undefined || data.doctor !== undefined || data.detective !== undefined)
+          ? {
+              mafia: data.mafia ?? def.mafia,
+              doctor: data.doctor ?? def.doctor,
+              detective: data.detective ?? def.detective
+            }
+          : undefined;
 
-      callback({ success: true });
+      const narrations = room.startGame(configClean);
+      if (!narrations) return cb?.({ success: false, error: 'Cannot start. Need at least 5 players, or invalid role counts.' });
+
+      cb?.({ success: true });
       broadcastAndState(currentRoomCode, narrations);
+    });
+
+    // --- HOST QUIT ---
+
+    socket.on('hostQuit', () => {
+      if (!currentRoomCode || !currentPlayerId) return;
+      const room = roomManager.getRoom(currentRoomCode);
+      if (!room) return;
+      const player = room.getPlayer(currentPlayerId);
+      if (!player?.isHost) return;
+
+      emitToRoom(currentRoomCode, 'roomClosed', { reason: 'Host ended the game' });
+      io.in(currentRoomCode).socketsLeave(currentRoomCode);
+      roomManager.deleteRoom(currentRoomCode);
+      logger.gameEvent('Host quit game', currentRoomCode, {});
     });
 
     // --- PHASE TRANSITIONS ---
@@ -300,6 +339,18 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager): void 
       }
 
       emitNightPhaseToAll(currentRoomCode);
+    });
+
+    socket.on('nightChatMessage', (data: { text: string }) => {
+      if (!currentRoomCode || !currentPlayerId) return;
+      const room = roomManager.getRoom(currentRoomCode);
+      if (!room) return;
+      const player = room.getPlayer(currentPlayerId);
+      if (!player?.role || player.role === 'civilian') return;
+      const role = player.role as 'mafia' | 'doctor' | 'detective';
+      if (room.addNightChatMessage(currentPlayerId, data.text)) {
+        emitNightChatToRole(currentRoomCode, role);
+      }
     });
 
     // --- DAY VOTING ---

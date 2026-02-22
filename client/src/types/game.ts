@@ -40,6 +40,12 @@ export interface ClientGameState {
   myId: string;
 }
 
+export interface NightChatMessage {
+  playerName: string;
+  text: string;
+  ts: number;
+}
+
 export interface NightPhaseData {
   phase: GamePhase;
   myRole: Role;
@@ -47,6 +53,7 @@ export interface NightPhaseData {
   selections: Record<string, string>;
   confirmed: string[];
   sameRoleCount: number;
+  chatMessages?: NightChatMessage[];
   detectiveResult?: boolean;
 }
 
@@ -59,6 +66,21 @@ export interface NarrationEvent {
   text: string;
   phase: GamePhase;
   delay?: number;
+}
+
+export interface RoleConfig {
+  mafia: number;
+  doctor: number;
+  detective: number;
+}
+
+export function getDefaultDistribution(playerCount: number): RoleConfig {
+  if (playerCount <= 9) return { mafia: 1, doctor: 1, detective: 1 };
+  if (playerCount <= 12) return { mafia: 2, doctor: 1, detective: 1 };
+  if (playerCount <= 16) return { mafia: 3, doctor: 1, detective: 2 };
+  if (playerCount <= 20) return { mafia: 4, doctor: 2, detective: 2 };
+  if (playerCount <= 25) return { mafia: 5, doctor: 2, detective: 2 };
+  return { mafia: 6, doctor: 2, detective: 3 };
 }
 
 export const ROLE_INFO: Record<Role, { label: string; emoji: string; color: string; description: string }> = {

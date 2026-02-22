@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   Player, Role, GamePhase, NightActions,
   DayVotes, NightResult, ClientGameState, ClientPlayer, ClientNightResult,
-  NightPhaseData, VotingData, NarrationEvent, Team
+  NightPhaseData, VotingData, NarrationEvent, Team, NightChatMessage
 } from '../types/game';
 import { RoleAssigner } from './RoleAssigner';
 import { logger } from '../utils/logger';
@@ -19,6 +19,11 @@ export class GameRoom {
   private lastEliminatedPlayer: { name: string; role: Role } | null = null;
   private winners: Team | null = null;
   private phaseStartTime: number = Date.now();
+  private nightChat: Record<'mafia' | 'doctor' | 'detective', NightChatMessage[]> = {
+    mafia: [],
+    doctor: [],
+    detective: []
+  };
 
   constructor(roomCode: string, hostSocketId: string, hostName: string) {
     this.roomCode = roomCode;
@@ -147,11 +152,25 @@ export class GameRoom {
     return this.phase === 'lobby' && this.players.size >= 5;
   }
 
-  startGame(): NarrationEvent[] | null {
+  startGame(config?: { mafia: number; doctor: number; detective: number }): NarrationEvent[] | null {
     if (!this.canStart()) return null;
 
+    const n = this.players.size;
+    let distribution: { mafia: number; doctor: number; detective: number; civilian: number };
+
+    if (config) {
+      const { mafia, doctor, detective } = config;
+      const civilian = n - mafia - doctor - detective;
+      if (mafia < 0 || doctor < 0 || detective < 0 || civilian < 0 || mafia + doctor + detective > n) {
+        return null;
+      }
+      distribution = { mafia, doctor, detective, civilian };
+    } else {
+      distribution = RoleAssigner.getDistribution(n);
+    }
+
     const playerIds = Array.from(this.players.keys());
-    const roleAssignments = RoleAssigner.assignRoles(playerIds);
+    const roleAssignments = RoleAssigner.assignRoles(playerIds, distribution);
 
     roleAssignments.forEach((role, playerId) => {
       const player = this.players.get(playerId);
@@ -163,8 +182,8 @@ export class GameRoom {
     this.phaseStartTime = Date.now();
 
     logger.gameEvent('Game started', this.roomCode, {
-      players: this.players.size,
-      distribution: RoleAssigner.getDistribution(this.players.size)
+      players: n,
+      distribution: { mafia: distribution.mafia, doctor: distribution.doctor, detective: distribution.detective }
     });
 
     return [{ text: 'Roles have been assigned. Check your role carefully...', phase: 'role_reveal' }];
@@ -175,6 +194,7 @@ export class GameRoom {
     this.nightActions = this.createEmptyNightActions();
     this.nightResult = null;
     this.lastEliminatedPlayer = null;
+    this.nightChat = { mafia: [], doctor: [], detective: [] };
     this.phase = 'night_mafia';
     this.phaseStartTime = Date.now();
 
@@ -245,6 +265,7 @@ export class GameRoom {
   }
 
   advanceFromMafia(): NarrationEvent[] {
+    this.nightChat.mafia = [];
     this.phase = 'night_doctor';
     this.phaseStartTime = Date.now();
 
@@ -302,6 +323,7 @@ export class GameRoom {
   }
 
   advanceFromDoctor(): NarrationEvent[] {
+    this.nightChat.doctor = [];
     this.phase = 'night_detective';
     this.phaseStartTime = Date.now();
 
@@ -376,9 +398,11 @@ export class GameRoom {
       if (victim) {
         victim.isAlive = false;
         killedPlayer = victim;
+        this.transferHostIfEliminated();
       }
     }
 
+    this.nightChat.detective = [];
     this.nightResult = { killedPlayer, savedByDoctor };
     this.phase = 'day_discussion';
     this.phaseStartTime = Date.now();
@@ -415,6 +439,7 @@ export class GameRoom {
 
     const winCheck = this.checkWinCondition();
     if (winCheck) {
+      this.nightChat = { mafia: [], doctor: [], detective: [] };
       this.phase = 'game_over';
       this.winners = winCheck;
       narrations.push({
@@ -500,6 +525,7 @@ export class GameRoom {
 
     eliminated.isAlive = false;
     this.lastEliminatedPlayer = { name: eliminated.name, role: eliminated.role! };
+    this.transferHostIfEliminated();
     this.phase = 'day_discussion';
     this.phaseStartTime = Date.now();
 
@@ -518,6 +544,7 @@ export class GameRoom {
 
     const winCheck = this.checkWinCondition();
     if (winCheck) {
+      this.nightChat = { mafia: [], doctor: [], detective: [] };
       this.phase = 'game_over';
       this.winners = winCheck;
       narrations.push({
@@ -530,6 +557,23 @@ export class GameRoom {
     }
 
     return narrations;
+  }
+
+  addNightChatMessage(playerId: string, text: string): boolean {
+    const player = this.players.get(playerId);
+    if (!player?.isAlive || !player.role) return false;
+    const role = player.role;
+    if (role === 'civilian') return false;
+    const phaseRole = this.phase === 'night_mafia' ? 'mafia' : this.phase === 'night_doctor' ? 'doctor' : this.phase === 'night_detective' ? 'detective' : null;
+    if (phaseRole !== role) return false;
+    const trimmed = text.trim().slice(0, 200);
+    if (!trimmed) return false;
+    this.nightChat[phaseRole].push({ playerName: player.name, text: trimmed, ts: Date.now() });
+    return true;
+  }
+
+  getNightChatForRole(role: 'mafia' | 'doctor' | 'detective'): NightChatMessage[] {
+    return [...this.nightChat[role]];
   }
 
   private checkWinCondition(): Team | null {
@@ -619,16 +663,19 @@ export class GameRoom {
         data.selections[mafiaId] = targetId;
       }
       data.confirmed = Array.from(this.nightActions.mafiaConfirmed);
+      data.chatMessages = this.getNightChatForRole('mafia');
     } else if (this.phase === 'night_doctor' && player.role === 'doctor') {
       for (const [docId, targetId] of this.nightActions.doctorSave) {
         data.selections[docId] = targetId;
       }
       data.confirmed = Array.from(this.nightActions.doctorConfirmed);
+      data.chatMessages = this.getNightChatForRole('doctor');
     } else if (this.phase === 'night_detective' && player.role === 'detective') {
       for (const [detId, targetId] of this.nightActions.detectiveInvestigate) {
         data.selections[detId] = targetId;
       }
       data.confirmed = Array.from(this.nightActions.detectiveConfirmed);
+      data.chatMessages = this.getNightChatForRole('detective');
       const result = this.nightActions.detectiveResults.get(forPlayerId);
       if (result !== undefined) {
         data.detectiveResult = result;
@@ -669,6 +716,21 @@ export class GameRoom {
   getSocketIdForPlayer(playerId: string): string | null {
     const player = this.players.get(playerId);
     return player?.socketId || null;
+  }
+
+  private transferHostIfEliminated(): void {
+    const currentHost = this.players.get(this.hostId);
+    if (!currentHost || currentHost.isAlive) return;
+
+    currentHost.isHost = false;
+    const aliveConnected = this.getAlivePlayers().filter(p => p.isConnected);
+    const nextHost = aliveConnected[0]
+      ?? Array.from(this.players.values()).find(p => p.isConnected && p.id !== this.hostId);
+    if (nextHost) {
+      nextHost.isHost = true;
+      this.hostId = nextHost.id;
+      logger.gameEvent('Host transferred (elimination)', this.roomCode, { newHost: nextHost.name });
+    }
   }
 
   isAllPlayersDisconnected(): boolean {

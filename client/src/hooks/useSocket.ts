@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { ClientGameState, NightPhaseData, VotingData, NarrationEvent } from '../types/game';
+import { ClientGameState, NightPhaseData, VotingData, NarrationEvent, RoleConfig, NightChatMessage } from '../types/game';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 
@@ -9,6 +9,7 @@ interface UseSocketReturn {
   isConnected: boolean;
   gameState: ClientGameState | null;
   nightPhaseData: NightPhaseData | null;
+  nightChatMessages: NightChatMessage[];
   votingData: VotingData | null;
   narrationQueue: NarrationEvent[];
   clearNarration: () => void;
@@ -17,13 +18,15 @@ interface UseSocketReturn {
   createRoom: (playerName: string) => Promise<{ success: boolean; roomCode?: string; playerId?: string; token?: string; error?: string }>;
   joinRoom: (roomCode: string, playerName: string) => Promise<{ success: boolean; roomCode?: string; playerId?: string; token?: string; error?: string }>;
   rejoinRoom: (token: string) => Promise<{ success: boolean; error?: string }>;
-  startGame: () => Promise<{ success: boolean; error?: string }>;
+  startGame: (config?: RoleConfig) => Promise<{ success: boolean; error?: string }>;
+  hostQuit: () => void;
   readyForNight: () => void;
   startVoting: () => void;
   startNextNight: () => void;
   nightSelect: (targetId: string) => void;
   nightConfirm: () => void;
   nightUnconfirm: () => void;
+  nightChatMessage: (text: string) => void;
   castVote: (targetId: string) => void;
   removeVote: () => void;
 }
@@ -33,6 +36,7 @@ export function useSocket(): UseSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
   const [gameState, setGameState] = useState<ClientGameState | null>(null);
   const [nightPhaseData, setNightPhaseData] = useState<NightPhaseData | null>(null);
+  const [nightChatMessages, setNightChatMessages] = useState<NightChatMessage[]>([]);
   const [votingData, setVotingData] = useState<VotingData | null>(null);
   const [narrationQueue, setNarrationQueue] = useState<NarrationEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -78,10 +82,18 @@ export function useSocket(): UseSocketReturn {
 
     socket.on('gameState', (state: ClientGameState) => {
       setGameState(state);
+      if (!state.phase.startsWith('night_')) {
+        setNightChatMessages([]);
+      }
     });
 
     socket.on('nightPhaseUpdate', (data: NightPhaseData) => {
       setNightPhaseData(data);
+      setNightChatMessages(data.chatMessages ?? []);
+    });
+
+    socket.on('nightChatUpdate', (data: { messages: NightChatMessage[] }) => {
+      setNightChatMessages(data.messages);
     });
 
     socket.on('votingUpdate', (data: VotingData) => {
@@ -108,6 +120,7 @@ export function useSocket(): UseSocketReturn {
       localStorage.removeItem('mafia_roomCode');
       setGameState(null);
       setNightPhaseData(null);
+      setNightChatMessages([]);
       setVotingData(null);
     });
 
@@ -155,12 +168,16 @@ export function useSocket(): UseSocketReturn {
     });
   }, []);
 
-  const startGame = useCallback((): Promise<any> => {
+  const startGame = useCallback((config?: RoleConfig): Promise<any> => {
     return new Promise((resolve) => {
-      socketRef.current?.emit('startGame', (response: any) => {
+      socketRef.current?.emit('startGame', config ?? {}, (response: any) => {
         resolve(response);
       });
     });
+  }, []);
+
+  const hostQuit = useCallback(() => {
+    socketRef.current?.emit('hostQuit');
   }, []);
 
   const readyForNight = useCallback(() => {
@@ -195,6 +212,10 @@ export function useSocket(): UseSocketReturn {
     socketRef.current?.emit('removeVote');
   }, []);
 
+  const nightChatMessage = useCallback((text: string) => {
+    socketRef.current?.emit('nightChatMessage', { text });
+  }, []);
+
   const clearNarration = useCallback(() => {
     setNarrationQueue([]);
   }, []);
@@ -204,6 +225,7 @@ export function useSocket(): UseSocketReturn {
     isConnected,
     gameState,
     nightPhaseData,
+    nightChatMessages,
     votingData,
     narrationQueue,
     clearNarration,
@@ -213,12 +235,14 @@ export function useSocket(): UseSocketReturn {
     joinRoom,
     rejoinRoom,
     startGame,
+    hostQuit,
     readyForNight,
     startVoting,
     startNextNight,
     nightSelect,
     nightConfirm,
     nightUnconfirm,
+    nightChatMessage,
     castVote,
     removeVote,
   };

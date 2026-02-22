@@ -1,15 +1,23 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useEffect, useState } from 'react';
 import { ClientGameState, NightPhaseData, ROLE_INFO } from '../types/game';
 
 interface NightPhaseProps {
   gameState: ClientGameState;
   nightData: NightPhaseData | null;
+  nightChatMessages: { playerName: string; text: string; ts: number }[];
   onSelect: (targetId: string) => void;
   onConfirm: () => void;
   onUnconfirm: () => void;
+  onSendChat: (text: string) => void;
 }
 
-export function NightPhase({ gameState, nightData, onSelect, onConfirm, onUnconfirm }: NightPhaseProps) {
+export function NightPhase({ gameState, nightData, nightChatMessages, onSelect, onConfirm, onUnconfirm, onSendChat }: NightPhaseProps) {
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const [chatInput, setChatInput] = useState('');
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [nightChatMessages]);
   const myRole = gameState.myRole;
   const phase = gameState.phase;
 

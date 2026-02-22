@@ -16,6 +16,7 @@ function App() {
     isConnected,
     gameState,
     nightPhaseData,
+    nightChatMessages,
     votingData,
     narrationQueue,
     clearNarration,
@@ -24,12 +25,14 @@ function App() {
     createRoom,
     joinRoom,
     startGame,
+    hostQuit,
     readyForNight,
     startVoting,
     startNextNight,
     nightSelect,
     nightConfirm,
     nightUnconfirm,
+    nightChatMessage,
     castVote,
     removeVote,
   } = useSocket();
@@ -53,10 +56,16 @@ function App() {
     }
   }, [gameState?.phase, sfx.playPhaseSound]);
 
-  const handleStartGame = async () => {
-    const result = await startGame();
+  const handleStartGame = async (config: { mafia: number; doctor: number; detective: number }) => {
+    const result = await startGame(config);
     if (!result.success) {
       alert(result.error || 'Failed to start game');
+    }
+  };
+
+  const handleQuitGame = () => {
+    if (window.confirm('End the game for everyone? All players will return to the join screen.')) {
+      hostQuit();
     }
   };
 
@@ -84,6 +93,7 @@ function App() {
           <WaitingRoom
             gameState={gameState}
             onStartGame={handleStartGame}
+            onQuitGame={handleQuitGame}
           />
         );
 
@@ -102,9 +112,11 @@ function App() {
           <NightPhase
             gameState={gameState}
             nightData={nightPhaseData}
+            nightChatMessages={nightChatMessages}
             onSelect={nightSelect}
             onConfirm={nightConfirm}
             onUnconfirm={nightUnconfirm}
+            onSendChat={nightChatMessage}
           />
         );
 
@@ -146,9 +158,24 @@ function App() {
     }
   };
 
+  const isHost = gameState?.myId === gameState?.hostId;
+  const showHostQuit = gameState && isHost && gameState.phase !== 'lobby';
+
   return (
     <div className="relative">
       <NarratorDisplay text={narrator.currentText} isSpeaking={narrator.isSpeaking} />
+
+      {showHostQuit && (
+        <div className="fixed top-4 right-4 z-40">
+          <button
+            type="button"
+            onClick={handleQuitGame}
+            className="px-4 py-2 text-sm font-body text-midnight-300 hover:text-blood-400 border border-midnight-600 hover:border-blood-500/50 rounded-lg transition-colors bg-midnight-900/90 backdrop-blur-sm"
+          >
+            Quit game
+          </button>
+        </div>
+      )}
 
       {renderPhase()}
 
